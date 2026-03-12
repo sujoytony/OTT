@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Malayalam OTT Tracker 🌴</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0c1017; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0c1017; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    .row:hover { background: rgba(255,255,255,0.025) !important; }
+    input::placeholder { color: #475569; }
+    select option { background: #1a1f2e; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+'use strict';
+
+// ─── REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL ────────────────────────────
+const WORKER_URL = "https://sujoytony.sujoytony.workers.dev";
+// ─────────────────────────────────────────────────────────────────────────────
+
+const e = React.createElement;
+const { useState, useEffect } = React;
+
+const PLATFORMS = {
+  "Netflix":            { color: "#E50914", bg: "rgba(229,9,20,0.12)",    symbol: "N"  },
+  "Amazon Prime Video": { color: "#00A8E1", bg: "rgba(0,168,225,0.12)",   symbol: "P"  },
+  "JioHotstar":         { color: "#0D6EFD", bg: "rgba(13,110,253,0.12)",  symbol: "JH" },
+  "SonyLIV":            { color: "#F16522", bg: "rgba(241,101,34,0.12)",  symbol: "S"  },
+  "ZEE5":               { color: "#9B30FF", bg: "rgba(155,48,255,0.12)",  symbol: "Z5" },
+  "Sun NXT":            { color: "#FF6600", bg: "rgba(255,102,0,0.12)",   symbol: "SN" },
+  "Manorama Max":       { color: "#E91E8C", bg: "rgba(233,30,140,0.12)",  symbol: "MM" },
+  "JioCinema":          { color: "#0C6CF2", bg: "rgba(12,108,242,0.12)",  symbol: "JC" },
+  "Aha":                { color: "#FF3F63", bg: "rgba(255,63,99,0.12)",   symbol: "A"  },
+};
+
+function getPlatform(name) {
+  return PLATFORMS[name] || { color:"#64748b", bg:"rgba(100,116,139,0.12)", symbol:(name||"?").slice(0,2).toUpperCase() };
+}
+function formatDate(d) {
+  if (!d) return "—";
+  return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" });
+}
+function isUpcoming(d) { return new Date(d + "T00:00:00") > new Date(); }
+function daysAgo(d) {
+  const diff = Math.round((new Date() - new Date(d + "T00:00:00")) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff < 0)  return "In " + Math.abs(diff) + "d";
+  return diff + "d ago";
+}
+
+// ── SKELETON ROW (loading placeholder) ───────────────────────────────────────
+function SkeletonRow({ cols }) {
+  return e("div", { style:{ display:"grid", gridTemplateColumns:cols, padding:"13px 16px", borderBottom:"1px solid rgba(255,255,255,0.04)", alignItems:"center", gap:8 } },
+    [70, 55, 80, 60, 30].map((w, i) =>
+      e("div", { key:i, style:{ height:10, width:w+"%", borderRadius:4, background:"rgba(255,255,255,0.06)", animation:"pulse 1.5s ease-in-out infinite", animationDelay:(i*0.1)+"s" } })
+    )
+  );
+}
+
+function App() {
+  const [movies,     setMovies]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState("");
+  const [updatedAt,  setUpdatedAt]  = useState("");
+  const [sortBy,     setSortBy]     = useState("ott_date");
+  const [sortDir,    setSortDir]    = useState("asc");
+  const [filter,     setFilter]     = useState("");
+  const [platFilter, setPlatFilter] = useState("All");
+
+  // ── Auto-fetch on mount ───────────────────────────────────────────────────
+  useEffect(() => {
+    fetch(WORKER_URL, { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setMovies((data.movies || []).map((m, i) => ({ ...m, id:i })));
+        if (data.updatedAt) {
+          setUpdatedAt(new Date(data.updatedAt).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" }));
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  function toggleSort(col) {
+    if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortBy(col); setSortDir("asc"); }
+  }
+
+  const allPlatforms = ["All", ...new Set(movies.map(m => m.platform))];
+  const upcoming = movies.filter(m => isUpcoming(m.ott_date)).length;
+  const released = movies.length - upcoming;
+
+  const filtered = movies
+    .filter(m => {
+      const q   = filter.toLowerCase();
+      const qOk = !q || m.movie.toLowerCase().includes(q) || m.platform.toLowerCase().includes(q) || (m.genre||"").toLowerCase().includes(q);
+      const pOk = platFilter === "All" || m.platform === platFilter;
+      return qOk && pOk;
+    })
+    .sort((a, b) => {
+      const va = (a[sortBy]||"").toLowerCase(), vb = (b[sortBy]||"").toLowerCase();
+      return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+
+  const COLS    = [["movie","Movie"],["ott_date","OTT Date"],["platform","Platform"],["genre","Genre"],["",""]];
+  const gridTpl = "2.2fr 1fr 1.4fr 1fr 0.5fr";
+
+  // ── HEADER ────────────────────────────────────────────────────────────────
+  const header = e("div", { style:{ background:"linear-gradient(135deg,#1a0d2e 0%,#0a1628 60%,#0f1e10 100%)", padding:"22px 28px 18px", borderBottom:"1px solid rgba(255,255,255,0.06)" } },
+    e("div", { style:{ maxWidth:880, margin:"0 auto" } },
+      e("div", { style:{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 } },
+        e("div", { style:{ display:"flex", alignItems:"center", gap:12 } },
+          e("span", { style:{ fontSize:30 } }, "🌴"),
+          e("div", null,
+            e("h1", { style:{ margin:0, fontSize:20, fontWeight:700, color:"#f1f5f9", letterSpacing:"-0.3px" } }, "Malayalam OTT Tracker"),
+            e("p",  { style:{ margin:0, fontSize:11, color:"#475569", marginTop:2 } }, "Last 30 days + Next 10 days · Live from Anthropic")
+          )
+        ),
+        updatedAt && e("span", { style:{ fontSize:11, color:"#475569", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:6, padding:"5px 10px" } },
+          loading
+            ? e("span", { style:{ display:"inline-flex", alignItems:"center", gap:6 } },
+                e("span", { style:{ display:"inline-block", width:9, height:9, border:"1.5px solid rgba(148,163,184,0.3)", borderTopColor:"#94a3b8", borderRadius:"50%", animation:"spin 0.8s linear infinite" } }),
+                "Fetching..."
+              )
+            : "Updated " + updatedAt
+        )
+      )
+    )
+  );
+
+  // ── LOADING STATE ─────────────────────────────────────────────────────────
+  const loadingView = e("div", { style:{ maxWidth:880, margin:"0 auto", padding:"22px 20px" } },
+    e("div", { style:{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"60px 0", color:"#475569" } },
+      e("span", { style:{ display:"inline-block", width:20, height:20, border:"2px solid rgba(124,58,237,0.3)", borderTopColor:"#a78bfa", borderRadius:"50%", animation:"spin 0.8s linear infinite" } }),
+      e("span", { style:{ fontSize:14 } }, "Fetching latest Malayalam OTT releases...")
+    ),
+    // skeleton table
+    e("div", { style:{ background:"#141a24", border:"1px solid rgba(255,255,255,0.06)", borderRadius:12, overflow:"hidden" } },
+      e("div", { style:{ display:"grid", gridTemplateColumns:gridTpl, padding:"10px 16px", background:"rgba(255,255,255,0.03)", borderBottom:"1px solid rgba(255,255,255,0.06)", fontSize:10, letterSpacing:1.2, color:"#2d3f55", textTransform:"uppercase" } },
+        COLS.map(([,lbl], i) => e("div", { key:i }, lbl))
+      ),
+      [1,2,3,4,5,6].map(i => e(SkeletonRow, { key:i, cols:gridTpl }))
+    )
+  );
+
+  // ── ERROR STATE ───────────────────────────────────────────────────────────
+  const errorView = e("div", { style:{ maxWidth:880, margin:"40px auto", padding:"0 20px", textAlign:"center" } },
+    e("div", { style:{ background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:12, padding:"32px" } },
+      e("div", { style:{ fontSize:28, marginBottom:12 } }, "⚠"),
+      e("div", { style:{ fontSize:14, color:"#f59e0b", marginBottom:8 } }, "Could not load movies"),
+      e("div", { style:{ fontSize:12, color:"#64748b" } }, error)
+    )
+  );
+
+  // ── MAIN CONTENT ──────────────────────────────────────────────────────────
+  const content = e("div", { style:{ maxWidth:880, margin:"0 auto", padding:"22px 20px" } },
+
+    // stat cards
+    e("div", { style:{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" } },
+      [
+        { label:"Total Movies",  value:movies.length, color:"#94a3b8", icon:"🎬" },
+        { label:"Now Streaming", value:released,      color:"#22c55e", icon:"▶"  },
+        { label:"Coming Soon",   value:upcoming,      color:"#f59e0b", icon:"⏳" },
+      ].map(sc =>
+        e("div", { key:sc.label, style:{ flex:1, minWidth:90, background:"#141a24", border:"1px solid rgba(255,255,255,0.06)", borderRadius:10, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 } },
+          e("div", { style:{ fontSize:20 } }, sc.icon),
+          e("div", null,
+            e("div", { style:{ fontSize:22, fontWeight:700, color:sc.color, lineHeight:1 } }, sc.value),
+            e("div", { style:{ fontSize:11, color:"#475569", marginTop:3 } }, sc.label)
+          )
+        )
+      )
+    ),
+
+    // filters
+    e("div", { style:{ display:"flex", gap:10, marginBottom:14, flexWrap:"wrap" } },
+      e("input", { value:filter, onChange:ev=>setFilter(ev.target.value), placeholder:"🔍  Search movie, platform or genre...",
+        style:{ flex:1, minWidth:180, padding:"9px 13px", borderRadius:8, background:"#141a24", border:"1px solid rgba(255,255,255,0.08)", color:"#e2e8f0", fontSize:13, outline:"none" } }),
+      e("select", { value:platFilter, onChange:ev=>setPlatFilter(ev.target.value),
+        style:{ padding:"9px 13px", borderRadius:8, cursor:"pointer", background:"#141a24", border:"1px solid rgba(255,255,255,0.08)", color:"#e2e8f0", fontSize:13, outline:"none" } },
+        allPlatforms.map(p => e("option", { key:p, value:p }, p))
+      ),
+      e("div", { style:{ display:"flex", alignItems:"center", fontSize:12, color:"#475569" } }, filtered.length + " of " + movies.length)
+    ),
+
+    // platform pills
+    e("div", { style:{ display:"flex", gap:7, marginBottom:16, flexWrap:"wrap" } },
+      allPlatforms.map(p => {
+        const cfg = p==="All" ? { color:"#94a3b8", bg:"rgba(148,163,184,0.1)" } : getPlatform(p);
+        const active = platFilter===p;
+        return e("button", { key:p, onClick:()=>setPlatFilter(p),
+          style:{ padding:"4px 12px", borderRadius:100, fontSize:11, fontWeight:600, cursor:"pointer", transition:"all 0.15s",
+            border:"1px solid "+(active ? cfg.color : "rgba(255,255,255,0.08)"),
+            background: active ? cfg.bg : "transparent", color: active ? cfg.color : "#475569" } }, p);
+      })
+    ),
+
+    // table
+    e("div", { style:{ background:"#141a24", border:"1px solid rgba(255,255,255,0.06)", borderRadius:12, overflow:"hidden" } },
+
+      // head
+      e("div", { style:{ display:"grid", gridTemplateColumns:gridTpl, padding:"10px 16px", background:"rgba(255,255,255,0.03)", borderBottom:"1px solid rgba(255,255,255,0.06)", fontSize:10, letterSpacing:1.2, color:"#475569", textTransform:"uppercase" } },
+        COLS.map(([col,lbl], i) =>
+          e("div", { key:i, onClick:()=>col&&toggleSort(col), style:{ cursor:col?"pointer":"default", userSelect:"none", color:sortBy===col?"#94a3b8":"#475569", display:"flex", alignItems:"center", gap:3 } },
+            lbl,
+            col && e("span", { style:{ opacity:sortBy===col?1:0.25, fontSize:9 } }, sortBy===col?(sortDir==="asc"?"▲":"▼"):"⇅")
+          )
+        )
+      ),
+
+      // rows
+      filtered.length === 0
+        ? e("div", { style:{ padding:40, textAlign:"center", color:"#475569", fontSize:14 } }, "No movies match your filter")
+        : filtered.map((m, i) => {
+            const up  = isUpcoming(m.ott_date);
+            const plt = getPlatform(m.platform);
+            return e("div", { key:m.id, className:"row",
+              style:{ display:"grid", gridTemplateColumns:gridTpl, padding:"12px 16px", borderBottom:i<filtered.length-1?"1px solid rgba(255,255,255,0.04)":"none", alignItems:"center" } },
+              e("div", { style:{ fontWeight:600, fontSize:13, color:"#f1f5f9" } }, m.movie),
+              e("div", null,
+                e("div", { style:{ fontSize:12, color:"#94a3b8", fontFamily:"monospace" } }, formatDate(m.ott_date)),
+                e("div", { style:{ fontSize:10, color:up?"#f59e0b":"#475569", marginTop:2 } }, daysAgo(m.ott_date))
+              ),
+              e("div", { style:{ display:"flex", alignItems:"center", gap:7 } },
+                e("div", { style:{ width:24, height:24, borderRadius:5, flexShrink:0, background:plt.bg, border:"1px solid "+plt.color+"44", display:"flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:800, color:plt.color, fontFamily:"monospace", letterSpacing:-0.5 } }, plt.symbol),
+                e("span", { style:{ fontSize:12, color:"#94a3b8" } }, m.platform)
+              ),
+              e("div", { style:{ fontSize:11, color:"#475569" } }, m.genre || "—"),
+              e("div", null,
+                e("span", { style:{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:100, letterSpacing:0.8,
+                  background:up?"rgba(245,158,11,0.15)":"rgba(34,197,94,0.12)",
+                  color:up?"#f59e0b":"#22c55e",
+                  border:"1px solid "+(up?"rgba(245,158,11,0.3)":"rgba(34,197,94,0.25)") } }, up?"SOON":"OUT")
+              )
+            );
+          })
+    ),
+
+    e("p", { style:{ textAlign:"center", marginTop:14, fontSize:10, color:"#1e293b" } },
+      "FilmiBeat · OnManorama · IndianTVInfo · Powered by Anthropic via Cloudflare Worker")
+  );
+
+  return e("div", { style:{ minHeight:"100vh", background:"#0c1017", color:"#e2e8f0", fontFamily:"'Segoe UI',system-ui,sans-serif" } },
+    header,
+    loading ? loadingView : error ? errorView : content
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(e(App));
+</script>
+</body>
+</html>
