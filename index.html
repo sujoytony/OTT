@@ -25,7 +25,7 @@
 'use strict';
 
 // ─── REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL ────────────────────────────
-const WORKER_URL = "https://sujoytony.sujoytony.workers.dev";
+const WORKER_URL = "https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const e = React.createElement;
@@ -127,7 +127,7 @@ function App() {
           e("span", { style:{ fontSize:30 } }, "🌴"),
           e("div", null,
             e("h1", { style:{ margin:0, fontSize:20, fontWeight:700, color:"#f1f5f9", letterSpacing:"-0.3px" } }, "Malayalam OTT Tracker"),
-            e("p",  { style:{ margin:0, fontSize:11, color:"#475569", marginTop:2 } }, "Last 30 days + Next 10 days · Live from Anthropic")
+            e("p",  { style:{ margin:0, fontSize:11, color:"#475569", marginTop:2 } }, "Last 30 days + Next 10 days")
           )
         ),
         updatedAt && e("span", { style:{ fontSize:11, color:"#475569", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:6, padding:"5px 10px" } },
